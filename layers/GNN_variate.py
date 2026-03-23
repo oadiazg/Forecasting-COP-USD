@@ -37,13 +37,25 @@ class MultiLayerGCN_variate(nn.Module):
 
     def edge_index(self, x):
         similarity_matrix = self.pearson_correlation(x)
-        k = self.k
-        neighbors = torch.argsort(similarity_matrix, dim=-1)[:, :, 1:k + 1]
         batch_size, num_nodes = similarity_matrix.shape[:2]
-        row_indices = torch.arange(num_nodes, device=x.device).repeat(k).reshape(1, -1).repeat(batch_size, 1)
+
+        # Fix: clamp k so it cannot exceed num_nodes - 1; with a single variable
+        # there are no valid neighbors and we fall back to a self-loop.
+        k_actual = min(self.k, num_nodes - 1)
+
+        if num_nodes == 1:
+            # Fix: cannot build a k-NN graph with only 1 node; use a self-loop
+            # so GCNConv can still propagate features without crashing.
+            self_idx = torch.zeros(batch_size, 1, dtype=torch.long, device=x.device)
+            edge_index = torch.stack([self_idx, self_idx], dim=1)  # (B, 2, 1)
+            return edge_index
+
+        neighbors = torch.argsort(similarity_matrix, dim=-1)[:, :, 1:k_actual + 1]
+        row_indices = torch.arange(num_nodes, device=x.device).repeat(k_actual).reshape(1, -1).repeat(batch_size, 1)
         col_indices = neighbors.reshape(batch_size, -1)
         edge_index = torch.stack((row_indices, col_indices), dim=1)
-        edge_index = edge_index.long().cuda()
+        # Fix: use .to(x.device) instead of .cuda() to support CPU-only environments
+        edge_index = edge_index.long().to(x.device)
         return edge_index
 
     def forward(self, enc_out_vari, x_enc):

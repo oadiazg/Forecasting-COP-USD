@@ -36,13 +36,25 @@ class MultiLayerGCN_time(nn.Module):
 
     def edge_index(self, x):
         similarity_matrix = self.pearson_correlation(x)
-        k = 2
-        neighbors = torch.argsort(similarity_matrix, dim=-1)[:, :, 1:k + 1]
         batch_size, num_nodes = similarity_matrix.shape[:2]
-        row_indices = torch.arange(num_nodes, device=x.device).repeat(k).reshape(1, -1).repeat(batch_size, 1)
+
+        # Fix: use self.k instead of hardcoded 2, and clamp so k < num_nodes
+        # (you cannot have more neighbors than num_nodes - 1 distinct nodes)
+        k_actual = min(self.k, num_nodes - 1)
+
+        if num_nodes == 1:
+            # Fix: with a single node there are no valid k-NN neighbors;
+            # fall back to a self-loop so GCNConv can still run.
+            self_idx = torch.zeros(batch_size, 1, dtype=torch.long, device=x.device)
+            edge_index = torch.stack([self_idx, self_idx], dim=1)  # (B, 2, 1)
+            return edge_index
+
+        neighbors = torch.argsort(similarity_matrix, dim=-1)[:, :, 1:k_actual + 1]
+        row_indices = torch.arange(num_nodes, device=x.device).repeat(k_actual).reshape(1, -1).repeat(batch_size, 1)
         col_indices = neighbors.reshape(batch_size, -1)
         edge_index = torch.stack((row_indices, col_indices), dim=1)
-        edge_index = edge_index.long().cuda()
+        # Fix: use .to(x.device) instead of .cuda() to support CPU-only environments
+        edge_index = edge_index.long().to(x.device)
         return edge_index
 
     def forward(self, enc_out_vari_embeding, x_enc, enc_in):
