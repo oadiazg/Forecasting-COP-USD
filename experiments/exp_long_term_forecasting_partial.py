@@ -9,6 +9,7 @@ import os
 import time
 import warnings
 import numpy as np
+import pandas as pd
 import random
 
 warnings.filterwarnings('ignore')
@@ -193,6 +194,9 @@ class Exp_Long_Term_Forecast_Partial(Exp_Basic):
 
         preds = []
         trues = []
+        # Always collect normalized (pre-inverse) values for separate metric reporting and CSV
+        preds_norm = []
+        trues_norm = []
         folder_path = './test_results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
@@ -223,6 +227,10 @@ class Exp_Long_Term_Forecast_Partial(Exp_Basic):
                 outputs = outputs.detach().cpu().numpy()
                 batch_y = batch_y.detach().cpu().numpy()
 
+                # Store normalized values before any inverse transform
+                preds_norm.append(outputs)
+                trues_norm.append(batch_y)
+
                 if test_data.scale and self.args.inverse:
                     outputs = test_data.inverse_transform(outputs)
                     batch_y = test_data.inverse_transform(batch_y)
@@ -237,21 +245,83 @@ class Exp_Long_Term_Forecast_Partial(Exp_Basic):
 
         preds = np.array(preds)
         trues = np.array(trues)
+        preds_norm = np.array(preds_norm)
+        trues_norm = np.array(trues_norm)
         print('test shape:', preds.shape, trues.shape)
         preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
         trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
+        preds_norm = preds_norm.reshape(-1, preds_norm.shape[-2], preds_norm.shape[-1])
+        trues_norm = trues_norm.reshape(-1, trues_norm.shape[-2], trues_norm.shape[-1])
         print('test shape:', preds.shape, trues.shape)
 
         folder_path = './results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-        mae, mse, rmse, mape, mspe, rse = metric(preds, trues)
-        print('mse:{}, mae:{}'.format(mse, mae))
+        # --- Metrics on normalized scale ---
+        mae_n, mse_n, rmse_n, mape_n, mspe_n, rse_n = metric(preds_norm, trues_norm)
+        print('Metrics on NORMALIZED scale (StandardScaler):')
+        print('  MAE:  {:.4f}'.format(mae_n))
+        print('  MSE:  {:.4f}'.format(mse_n))
+        print('  RMSE: {:.4f}'.format(rmse_n))
+        print('  MAPE: {:.4f}%'.format(mape_n * 100))
+        print('  RSE:  {:.4f}'.format(rse_n))
+
+        # --- Metrics on real scale (if requested and scaler is available) ---
+        mae_r = mse_r = rmse_r = mape_r = mspe_r = rse_r = float('nan')
+        preds_real = preds
+        trues_real = trues
+        if getattr(self.args, 'report_real_metrics', 1) and test_data.scale:
+            # Inverse-transform normalized arrays to real COP/USD scale for human-readable metrics
+            n_vars = preds_norm.shape[-1]
+            preds_real = test_data.inverse_transform(
+                preds_norm.reshape(-1, n_vars)).reshape(preds_norm.shape)
+            trues_real = test_data.inverse_transform(
+                trues_norm.reshape(-1, n_vars)).reshape(trues_norm.shape)
+            mae_r, mse_r, rmse_r, mape_r, mspe_r, rse_r = metric(preds_real, trues_real)
+            print('Metrics on REAL scale (COP/USD values):')
+            print('  MAE:  {:.4f}'.format(mae_r))
+            print('  MSE:  {:.4f}'.format(mse_r))
+            print('  RMSE: {:.4f}'.format(rmse_r))
+            print('  MAPE: {:.4f}%'.format(mape_r * 100))
+            print('  RSE:  {:.4f}'.format(rse_r))
+
         f = open("result_long_term_forecast.txt", 'a')
         f.write(setting + "  \n")
-        f.write('mse:{}, mae:{}'.format(mse, mae))
+        f.write('mse:{}, mae:{}, rse:{}, rmse:{}, mape:{}, mspe:{}'.format(
+            mse_n, mae_n, rse_n, rmse_n, mape_n, mspe_n))
         f.write('\n\n')
         f.close()
+
+        # --- Export predictions vs actuals CSV ---
+        rows = []
+        for sample_idx in range(preds_norm.shape[0]):
+            for step in range(preds_norm.shape[1]):
+                # Use the last variable column (the target) for single-value output
+                rows.append({
+                    'sample_idx': sample_idx,
+                    'step': step + 1,
+                    'true_value_normalized': trues_norm[sample_idx, step, -1],
+                    'pred_value_normalized': preds_norm[sample_idx, step, -1],
+                    'true_value_real': trues_real[sample_idx, step, -1],
+                    'pred_value_real': preds_real[sample_idx, step, -1],
+                })
+        pred_csv_path = folder_path + 'predictions_vs_actuals.csv'
+        pd.DataFrame(rows).to_csv(pred_csv_path, index=False)
+        print('Predictions vs actuals saved to:', pred_csv_path)
+
+        # --- Export metrics summary CSV ---
+        summary = {
+            'setting': [setting],
+            'mae_normalized': [mae_n], 'mse_normalized': [mse_n],
+            'rmse_normalized': [rmse_n], 'mape_normalized': [mape_n],
+            'mspe_normalized': [mspe_n], 'rse_normalized': [rse_n],
+            'mae_real': [mae_r], 'mse_real': [mse_r],
+            'rmse_real': [rmse_r], 'mape_real': [mape_r],
+            'mspe_real': [mspe_r], 'rse_real': [rse_r],
+        }
+        summary_csv_path = folder_path + 'metrics_summary.csv'
+        pd.DataFrame(summary).to_csv(summary_csv_path, index=False)
+        print('Metrics summary saved to:', summary_csv_path)
 
         return

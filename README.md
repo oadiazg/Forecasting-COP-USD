@@ -153,106 +153,85 @@ pip install -r requirements.txt
 
 ## Uso del Modelo DFGCN
 
+---
+
+### Entendiendo `--enc_in` y `--features`
+
+El parámetro `--features` controla qué columnas se usan como entrada y cuál se predice:
+
+| Modo | Descripción |
+|------|-------------|
+| `S` | **Univariado** — usa sólo la columna `--target` como entrada y la predice |
+| `M` | **Multivariado** — usa todas las columnas como entrada y predice todas |
+| `MS` | **Multi→Uni** — usa todas las columnas como entrada, predice sólo `--target` |
+
+El parámetro `--enc_in` **debe ser igual** al número de columnas de datos (excluyendo `date`) que el modelo recibe como entrada:
+- En modo `S`: siempre `--enc_in 1`
+- En modos `M` y `MS`: `--enc_in` = total de columnas numéricas en el CSV
+
+**Tabla de referencia:**
+
+| Columnas en CSV (sin `date`) | Modo | `--enc_in` | `--dec_in` | `--c_out` | `--k` |
+|------------------------------|------|-----------|-----------|----------|-------|
+| 1 (`COP_USD`) | `S` | 1 | 1 | 1 | 1 |
+| 3 (`var1, var2, COP_USD`) | `M` | 3 | 3 | 3 | 2 |
+| 3 (`var1, var2, COP_USD`) | `MS` | 3 | 3 | 1 | 2 |
+| 7 (`var1…var6, COP_USD`) | `M` | 7 | 7 | 7 | 2 |
+
+> ⚠️ **Restricción importante sobre `--k`**: el valor de `k` debe ser **menor** que `enc_in`.
+> Para `enc_in=1` use siempre `--k 1`. Para `enc_in=3` use `--k 2`. El modelo detecta automáticamente cuando no hay vecinos suficientes y usa auto-conexiones.
+
+---
+
 ### Modo 1: Entrenamiento
 
-Para entrenar el modelo con sus datos propios:
+#### Entrenamiento con 1 variable (univariado)
 
-```bash
-python run.py \
-  --is_training 1 \
-  --model_id COP_USD_experimento1 \
-  --model DFGCN \
-  --data custom \
-  --root_path ./datos/ \
-  --data_path tasa_cop_usd.csv \
-  --features M \
-  --target COP_USD \
-  --freq d \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 30 \
-  --enc_in 7 \
-  --dec_in 7 \
-  --c_out 7 \
-  --d_model 128 \
-  --n_heads 1 \
-  --e_layers 1 \
-  --d_ff 128 \
-  --patch_len 8 \
-  --k 2 \
-  --use_norm 1 \
-  --train_epochs 20 \
-  --batch_size 32 \
-  --learning_rate 0.0001 \
-  --patience 5 \
-  --lradj type7 \
-  --dropout 0.1 \
-  --des entrenamiento_inicial
+Para una serie de tiempo con **una sola columna** (por ejemplo, sólo `date` y `COP_USD`):
+
+```
+python run.py --is_training 1 --model_id COP_USD_experimento1 --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features S --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in 1 --dec_in 1 --c_out 1 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 1 --use_norm 1 --train_epochs 20 --batch_size 32 --learning_rate 0.0001 --patience 5 --lradj type7 --dropout 0.1 --des entrenamiento_inicial
 ```
 
-Para series **univariadas** (solo la tasa COP/USD):
+> **Nota**: `--k 1` es obligatorio cuando `enc_in=1`. El grafo de variables no puede tener más vecinos que `enc_in - 1`.
 
-```bash
-python run.py \
-  --is_training 1 \
-  --model_id COP_USD_uni \
-  --model DFGCN \
-  --data custom \
-  --root_path ./datos/ \
-  --data_path tasa_cop_usd.csv \
-  --features S \
-  --target COP_USD \
-  --freq d \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 30 \
-  --enc_in 1 \
-  --dec_in 1 \
-  --c_out 1 \
-  --d_model 64 \
-  --n_heads 1 \
-  --e_layers 1 \
-  --d_ff 64 \
-  --patch_len 8 \
-  --k 1 \
-  --use_norm 1 \
-  --train_epochs 20 \
-  --batch_size 32 \
-  --learning_rate 0.0001
+#### Entrenamiento con N variables (multivariado)
+
+Reemplace los valores entre `<` `>` con los de su dataset:
+
 ```
+python run.py --is_training 1 --model_id COP_USD_experimento1 --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features M --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in <N> --dec_in <N> --c_out <N> --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 2 --use_norm 1 --train_epochs 20 --batch_size 32 --learning_rate 0.0001 --patience 5 --lradj type7 --dropout 0.1 --des entrenamiento_inicial
+```
+
+Donde `<N>` es el número total de columnas numéricas en su CSV (sin contar `date`).
+
+**Ejemplo con 7 variables:**
+```
+python run.py --is_training 1 --model_id COP_USD_7vars --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features M --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in 7 --dec_in 7 --c_out 7 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 2 --use_norm 1 --train_epochs 20 --batch_size 32 --learning_rate 0.0001 --patience 5 --lradj type7 --dropout 0.1 --des entrenamiento_inicial
+```
+
+#### Restricciones importantes
+
+| Restricción | Detalle |
+|-------------|---------|
+| **Observaciones mínimas** | Se recomienda ≥ 500 filas. Con `seq_len=96`, `pred_len=30` el modelo necesita al menos `seq_len + pred_len = 126` filas para tener al menos 1 muestra de test. |
+| **`k` < `enc_in`** | Siempre `k ≤ enc_in - 1`. Si `enc_in=1`, use `k=1` (se aplica auto-conexión). |
+| **`patch_len` divide `seq_len`** | `(seq_len - patch_len) % patch_len == 0`. Con `seq_len=96` y `patch_len=8`: `(96-8)/8 = 11` exacto → ✓. |
+| **`seq_len > patch_len`** | El tamaño del parche debe ser menor que la ventana de entrada. |
+
+---
 
 ### Modo 2: Validación
 
-La validación se ejecuta automáticamente al final del entrenamiento. Para ejecutar **solo la validación/prueba** sobre un modelo ya entrenado:
+La validación se ejecuta automáticamente al final del entrenamiento. Para ejecutar **sólo la evaluación** sobre un modelo ya entrenado:
 
-```bash
-python run.py \
-  --is_training 0 \
-  --model_id COP_USD_experimento1 \
-  --model DFGCN \
-  --data custom \
-  --root_path ./datos/ \
-  --data_path tasa_cop_usd.csv \
-  --features M \
-  --target COP_USD \
-  --freq d \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 30 \
-  --enc_in 7 \
-  --dec_in 7 \
-  --c_out 7 \
-  --d_model 128 \
-  --n_heads 1 \
-  --e_layers 1 \
-  --d_ff 128 \
-  --patch_len 8 \
-  --k 2 \
-  --use_norm 1 \
-  --des entrenamiento_inicial
+```
+python run.py --is_training 0 --model_id COP_USD_experimento1 --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features S --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in 1 --dec_in 1 --c_out 1 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 1 --use_norm 1 --des entrenamiento_inicial
 ```
 
-> Los resultados se guardan en `./results/` y `./test_results/`. Las métricas se registran en `result_long_term_forecast.txt`.
+> Los resultados se guardan en `./results/<setting>/` y `./test_results/<setting>/`. Las métricas se registran en `result_long_term_forecast.txt`. También se exportan automáticamente `predictions_vs_actuals.csv` y `metrics_summary.csv`.
+
+---
 
 ### Modo 3: Simulación (Random Walk como benchmark)
 
@@ -531,3 +510,72 @@ Los gráficos de predicción se guardan automáticamente en:
 El modelo DFGCN está basado en el repositorio original:
 - **Repositorio**: https://github.com/junjieyeys/DFGCN
 - **Artículo**: "DFGCN: Dual Frequency Graph Convolutional Network for Multivariate Time Series Forecasting"
+
+---
+
+## Usar el Modelo Entrenado para Predicciones Futuras
+
+### Concepto: ¿Qué predice el modelo?
+
+Cuando configura `--pred_len 30`, el modelo predice los **próximos 30 pasos** después de la última ventana de `seq_len` días del conjunto de test — no necesariamente después de la última fecha en su CSV.
+
+Durante la evaluación con `--is_training 0`, el modelo evalúa sobre el split de test predefinido (último 20 % del CSV). Para obtener predicciones **verdaderamente futuras** (más allá de la última fila de su CSV), use el script `predict_future.py`.
+
+---
+
+### Flujo completo: del entrenamiento a la predicción futura
+
+#### Paso 1 — Entrenar el modelo
+
+```
+python run.py --is_training 1 --model_id COP_USD_experimento1 --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features S --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in 1 --dec_in 1 --c_out 1 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 1 --use_norm 1 --train_epochs 20 --batch_size 32 --learning_rate 0.0001 --patience 5 --lradj type7 --dropout 0.1 --des entrenamiento_inicial
+```
+
+Esto guarda:
+- `./checkpoints/<setting>/checkpoint.pth` — pesos del modelo
+- `./checkpoints/<setting>/scaler.pkl` — escalador StandardScaler (para invertir la normalización)
+
+#### Paso 2 — Evaluar en el conjunto de test (split predefinido)
+
+```
+python run.py --is_training 0 --model_id COP_USD_experimento1 --model DFGCN --data custom --root_path ./datos/ --data_path tasa_cop_usd.csv --features S --target COP_USD --freq d --seq_len 96 --label_len 48 --pred_len 30 --enc_in 1 --dec_in 1 --c_out 1 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 1 --use_norm 1 --des entrenamiento_inicial
+```
+
+Esto genera en `./results/<setting>/`:
+- `predictions_vs_actuals.csv` — predicciones vs. valores reales en escala normalizada y real
+- `metrics_summary.csv` — todas las métricas en escala normalizada y real
+
+#### Paso 3 — Predecir valores futuros (más allá del último dato)
+
+```
+python predict_future.py --model_id COP_USD_experimento1 --data_path datos/tasa_cop_usd.csv --seq_len 96 --pred_len 30 --enc_in 1 --d_model 128 --n_heads 1 --e_layers 1 --d_ff 128 --patch_len 8 --k 1 --use_norm 1 --des entrenamiento_inicial --freq d
+```
+
+Esto guarda el resultado en `./resultados_futuro/COP_USD_experimento1_future_predictions.csv` con columnas `date` y `predicted_COP_USD`.
+
+---
+
+### Limitación actual
+
+El método `test()` sólo evalúa sobre el split de test predefinido (las últimas 20 % filas del CSV). Para predecir valores después de la última fila de datos, use `predict_future.py` que:
+1. Carga los últimos `seq_len` registros del CSV como ventana de entrada
+2. Aplica el mismo escalador que se usó durante el entrenamiento
+3. Ejecuta un único forward pass del modelo
+4. Invierte la normalización para obtener valores en COP/USD real
+5. Genera fechas futuras usando `pandas.bdate_range`
+
+---
+
+### Parámetros de `predict_future.py`
+
+| Parámetro | Descripción |
+|-----------|-------------|
+| `--model_id` | Identificador del experimento (igual al usado en el entrenamiento) |
+| `--data_path` | Ruta al CSV (e.g., `datos/tasa_cop_usd.csv`) |
+| `--seq_len` | Ventana de entrada (igual al entrenamiento) |
+| `--pred_len` | Número de pasos futuros a predecir |
+| `--enc_in` | Número de variables de entrada (igual al entrenamiento) |
+| `--k` | Vecinos k-NN (igual al entrenamiento; `k=1` para univariado) |
+| `--des` | Descripción del experimento (igual al entrenamiento) |
+
+Todos los parámetros de arquitectura (`--d_model`, `--n_heads`, `--e_layers`, `--d_ff`, `--patch_len`, `--use_norm`) deben coincidir exactamente con los usados durante el entrenamiento.

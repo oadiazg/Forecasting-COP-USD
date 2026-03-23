@@ -138,9 +138,13 @@ if __name__ == '__main__':
     parser.add_argument('--embed_size', type=int, default=128,
                         help='Dimensión de embeddings ocultos')
     parser.add_argument('--k', type=int, default=2,
-                        help='Número de vecinos en el grafo de correlación de Pearson (k-NN)')
+                        help='Número de vecinos en el grafo de correlación de Pearson (k-NN). '
+                             'Must be < enc_in. Use k=1 for univariate (enc_in=1).')
     parser.add_argument('--patch_len', type=int, default=8,
                         help='Longitud del parche temporal para procesamiento por patches')
+    parser.add_argument('--report_real_metrics', type=int, default=1,
+                        help='Report metrics on real (inverse-transformed) scale in addition to '
+                             'normalized scale: 1=yes (default), 0=no')
 
     args = parser.parse_args()
     args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
